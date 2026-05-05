@@ -16,7 +16,8 @@ class GoogleMCPClient:
         :param base_url: The URL of the deployed external MCP server.
                          If not provided, it falls back to the MCP_SERVER_URL env var.
         """
-        self.base_url = base_url or os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8000").rstrip("/")
+        # Remove any trailing slash to prevent // double-slash errors
+        self.base_url = (base_url or os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8000")).rstrip("/")
         
     def append_section(self, doc_id: str, content: str) -> dict:
         """
