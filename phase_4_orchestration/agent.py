@@ -1,5 +1,6 @@
 import os
 import json
+import httpx
 from groq import Groq
 from dotenv import load_dotenv
 from typing import List, Dict, Any
@@ -8,24 +9,27 @@ from tools_registry import TOOLS, handle_tool_call
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY").strip())
+client = Groq(
+    api_key=os.environ.get("GROQ_API_KEY").strip(),
+    timeout=60.0
+)
 MODEL = "llama-3.1-8b-instant"
 
 SYSTEM_PROMPT = """
-You are the 'Weekly Product Review Pulse' AI Agent. Your goal is to generate a high-quality weekly summary of user feedback for specific fintech products and deliver it via Google Workspace.
+You are the 'Weekly Product Review Pulse' AI Agent.
+PRODUCT DATA:
+- Groww: Apple ID '1404115983', Google ID 'com.nextbillion.groww'
+- INDMoney: Apple ID '1459334316', Google ID 'com.indwealth'
 
-Your workflow is:
-1. **Fetch Data**: Use 'fetch_all_reviews' to get reviews.
-2. **Handle Empty Data**: If no reviews are returned, inform the user and STOP. Do NOT hallucinate data or proceed to clustering.
-3. **Cluster & Analyze**: Use 'cluster_and_summarize' to group the raw reviews into semantic themes.
-4. **Reason & Write**: Based on the clusters and sample reviews, write a professional Markdown report.
-   - Use headings for top themes.
-   - Include a few high-impact verbatim quotes (must be exactly from the provided samples).
-   - Provide 2-3 actionable product ideas.
-   - Add a 'Who this helps' section.
-5. **Deliver**: Use 'deliver_report'. 
+WORKFLOW:
+1. Fetch reviews using 'fetch_all_reviews' with the IDs above. Use weeks_ago=8.
+2. Cluster and summarize using 'cluster_and_summarize'.
+3. Deliver the Markdown report using 'deliver_report'.
 
-Constraint: Be concise, professional, and data-driven. Do NOT hallucinate quotes.
+RULES:
+- NO MATH in arguments. Use only simple integers.
+- NO HALLUCINATING IDs. Use the data provided above.
+- NO HTML. Use ONLY plain Markdown.
 """
 
 class PulseAgent:
@@ -36,13 +40,13 @@ class PulseAgent:
         self.email_to = email_to
         self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Generate the weekly pulse for {product_name} for ISO week {iso_week}. Deliver it to Doc ID {doc_id} and email {email_to}."}
+            {"role": "user", "content": f"Generate the weekly pulse for {product_name} ({iso_week}). Doc: {doc_id}, Email: {email_to}"}
         ]
 
     def run(self):
         print(f"Starting Pulse Agent for {self.product_name}...")
         
-        while True:
+        for _ in range(5): # Max 5 turns
             response = client.chat.completions.create(
                 model=MODEL,
                 messages=self.messages,
@@ -82,11 +86,5 @@ class PulseAgent:
             return response_message.content
 
 if __name__ == "__main__":
-    # Test run
-    agent = PulseAgent(
-        product_name="INDMoney",
-        iso_week="latest",
-        doc_id="test",
-        email_to="test"
-    )
+    agent = PulseAgent(product_name="Groww", iso_week="latest", doc_id="test", email_to="test")
     agent.run()
