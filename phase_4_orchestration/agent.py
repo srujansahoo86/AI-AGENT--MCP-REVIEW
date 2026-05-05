@@ -1,5 +1,7 @@
 import os
 import json
+import httpx
+import sys
 from groq import Groq
 from dotenv import load_dotenv
 from typing import List, Dict, Any
@@ -8,28 +10,31 @@ from tools_registry import TOOLS, handle_tool_call
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-# Initialize Groq with default settings but increased timeout for reliability
-client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY"),
-    timeout=60.0  # 60 second timeout
-)
+api_key = os.environ.get("GROQ_API_KEY")
+if not api_key:
+    print("CRITICAL ERROR: GROQ_API_KEY is missing from environment!")
+    sys.exit(1)
+
+# Debug: Print the first 4 chars of the key to verify it's loaded (SAFE)
+print(f"GROQ_API_KEY loaded: {api_key[:4]}...{api_key[-4:]}")
+
+# Initialize Groq
+client = Groq(api_key=api_key.strip()) # STRIP SPACES
 MODEL = "llama-3.3-70b-versatile"
+
+def test_connection():
+    """Verifies if we can reach Groq at all."""
+    print("Testing connection to api.groq.com...")
+    try:
+        response = httpx.get("https://api.groq.com/openai/v1/models", headers={"Authorization": f"Bearer {api_key.strip()}"})
+        print(f"Connection test status: {response.status_code}")
+        if response.status_code != 200:
+            print(f"Connection test failed! Details: {response.text}")
+    except Exception as e:
+        print(f"Network is UNREACHABLE: {e}")
 
 SYSTEM_PROMPT = """
 You are the 'Weekly Product Review Pulse' AI Agent. Your goal is to generate a high-quality weekly summary of user feedback for specific fintech products and deliver it via Google Workspace.
-
-Your workflow is:
-1. **Fetch Data**: Use 'fetch_all_reviews' to get reviews.
-2. **Handle Empty Data**: If no reviews are returned, inform the user and STOP. Do NOT hallucinate data or proceed to clustering.
-3. **Cluster & Analyze**: Use 'cluster_and_summarize' to group the raw reviews into semantic themes.
-4. **Reason & Write**: Based on the clusters and sample reviews, write a professional Markdown report.
-   - Use headings for top themes.
-   - Include a few high-impact verbatim quotes (must be exactly from the provided samples).
-   - Provide 2-3 actionable product ideas.
-   - Add a 'Who this helps' section.
-5. **Deliver**: Use 'deliver_report'. 
-
-Constraint: Be concise, professional, and data-driven. Do NOT hallucinate quotes.
 """
 
 class PulseAgent:
@@ -40,61 +45,67 @@ class PulseAgent:
         self.email_to = email_to
         self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Generate the weekly pulse for {product_name} for ISO week {iso_week}. Deliver it to Doc ID {doc_id} and email {email_to}."}
+            {"role": "user", "content": f"Pulse for {product_name} ({iso_week}). Doc: {doc_id}, Email: {email_to}"}
         ]
 
     def run(self):
         print(f"Starting Pulse Agent for {self.product_name}...")
+        test_connection() # RUN TEST
         
-        while True:
-            try:
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=self.messages,
+                tools=TOOLS,
+                tool_choice="auto"
+            )
+            
+            response_message = response.choices[0].message
+            self.messages.append(response_message)
+            
+            if response_message.tool_calls:
+                for tool_call in response_message.tool_calls:
+                    function_name = tool_call.function.name
+                    function_args = json.loads(tool_call.function.arguments)
+                    
+                    print(f"Agent calling tool: {function_name}...")
+                    try:
+                        function_response = handle_tool_call(function_name, function_args)
+                        self.messages.append({
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": function_name,
+                            "content": json.dumps(function_response)
+                        })
+                    except Exception as e:
+                        print(f"Error executing tool {function_name}: {e}")
+                        self.messages.append({
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": function_name,
+                            "content": json.dumps({"error": str(e)})
+                        })
+                
+                # After tool calls, we usually need another completion to get the final message
                 response = client.chat.completions.create(
                     model=MODEL,
-                    messages=self.messages,
-                    tools=TOOLS,
-                    tool_choice="auto"
+                    messages=self.messages
                 )
-                
-                response_message = response.choices[0].message
-                self.messages.append(response_message)
-                
-                if response_message.tool_calls:
-                    for tool_call in response_message.tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments)
-                        
-                        print(f"Agent calling tool: {function_name}...")
-                        try:
-                            function_response = handle_tool_call(function_name, function_args)
-                            
-                            self.messages.append({
-                                "tool_call_id": tool_call.id,
-                                "role": "tool",
-                                "name": function_name,
-                                "content": json.dumps(function_response)
-                            })
-                        except Exception as e:
-                            print(f"Error executing tool {function_name}: {e}")
-                            self.messages.append({
-                                "tool_call_id": tool_call.id,
-                                "role": "tool",
-                                "name": function_name,
-                                "content": json.dumps({"error": str(e)})
-                            })
-                    continue
-                
                 print("\nFinal Agent Message:")
-                print(response_message.content)
-                return response_message.content
-            except Exception as e:
-                print(f"API Error: {e}")
-                raise e
+                print(response.choices[0].message.content)
+                return response.choices[0].message.content
+            
+            print("\nFinal Agent Message:")
+            print(response_message.content)
+            return response_message.content
+        except Exception as e:
+            print(f"AGENT EXECUTION ERROR: {e}")
+            raise e
 
 if __name__ == "__main__":
-    # Test run
     agent = PulseAgent(
-        product_name="INDMoney",
-        iso_week="latest",
+        product_name="Groww",
+        iso_week="2026-W19",
         doc_id="test",
         email_to="test"
     )
