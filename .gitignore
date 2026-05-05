@@ -1,0 +1,15 @@
+# Environments
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Data & Logs
+*.db
+logs/
+idempotency.db
+pulse.log
+
+# IDEs
+.vscode/
+.idea/

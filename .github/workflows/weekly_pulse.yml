@@ -1,0 +1,61 @@
+name: Weekly Product Review Pulse
+
+on:
+  schedule:
+    # Every Tuesday at 04:00 UTC (09:30 AM IST)
+    - cron: '0 4 * * 2'
+  workflow_dispatch:
+    # Allows manual triggering for testing
+    inputs:
+      product:
+        description: 'Product name'
+        required: true
+        default: 'INDMoney'
+      week:
+        description: 'ISO Week (e.g., 2024-W19)'
+        required: true
+      doc_id:
+        description: 'Google Doc ID'
+        required: true
+      email:
+        description: 'Stakeholder Email'
+        required: true
+
+jobs:
+  run-pulse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r phase_1_foundation/requirements.txt
+          pip install -r phase_2_reasoning/requirements.txt
+          pip install -r phase_4_orchestration/requirements.txt
+
+      - name: Run Pulse CLI
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MCP_SERVER_URL: ${{ secrets.MCP_SERVER_URL }}
+        run: |
+          # Use workflow inputs if manual, or defaults if scheduled
+          PRODUCT=${{ github.event.inputs.product || 'INDMoney' }}
+          WEEK=${{ github.event.inputs.week || 'latest' }}
+          DOC_ID=${{ github.event.inputs.doc_id || secrets.DEFAULT_DOC_ID }}
+          EMAIL=${{ github.event.inputs.email || secrets.STAKEHOLDER_EMAIL }}
+          
+          cd phase_4_orchestration
+          python cli.py --product "$PRODUCT" --week "$WEEK" --doc-id "$DOC_ID" --email "$EMAIL"
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pulse-logs
+          path: phase_1_foundation/idempotency.db
