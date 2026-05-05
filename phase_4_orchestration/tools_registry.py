@@ -3,9 +3,11 @@ import os
 import json
 from typing import List, Dict, Any
 from dotenv import load_dotenv
+
+# Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-# Add the project root and relevant phase directories to sys.path to allow imports
+# Add the project root and relevant phase directories to sys.path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 phase_1_path = os.path.join(project_root, "phase_1_foundation")
 phase_2_path = os.path.join(project_root, "phase_2_reasoning")
@@ -28,83 +30,65 @@ play_store = PlayStoreIngestor()
 clusterer = ReviewClusterer()
 mcp_client = GoogleMCPClient()
 
-def fetch_all_reviews(apple_app_id: str, google_play_id: str, weeks_ago: int = 52) -> List[Dict[str, Any]]:
-    """
-    Fetches reviews from both Apple App Store and Google Play Store for a given time window.
-    Returns a combined list of review dictionaries.
-    """
-    # Hardcode for final verification run
-    weeks_ago = 52
-    print(f"Fetching reviews for Apple: {apple_app_id}, Google: {google_play_id} (FORCED weeks_ago={weeks_ago})...")
+def fetch_all_reviews(apple_app_id: str, google_play_id: str, weeks_ago: int = 8) -> List[Dict[str, Any]]:
+    """Fetches reviews from both stores."""
+    print(f"Fetching reviews for Apple: {apple_app_id}, Google: {google_play_id} (weeks_ago={weeks_ago})...")
     apple_reviews = app_store.fetch_reviews(apple_app_id, weeks_ago=weeks_ago)
     google_reviews = play_store.fetch_reviews(google_play_id, weeks_ago=weeks_ago)
     
     combined = []
     for r in apple_reviews + google_reviews:
-        # Convert Pydantic model to dict and handle datetime serialization
-        data = r.model_dump()
-        data['date'] = data['date'].isoformat()
+        data = r.dict() if hasattr(r, 'dict') else r
+        if isinstance(data.get('date'), datetime):
+            data['date'] = data['date'].isoformat()
         combined.append(data)
     
-    if len(combined) > 5:
-        print(f"Limiting agent context to 5 reviews (out of {len(combined)}) for final token economy.")
-        combined = combined[:5]
+    if len(combined) > 50:
+        print(f"Limiting agent context to 50 reviews (out of {len(combined)}).")
+        combined = combined[:50]
         
-    print(f"Returning {len(combined)} reviews to agent.")
     return combined
 
-def cluster_and_summarize(reviews: List[Dict[str, Any]]) -> str:
-    """
-    Groups reviews into semantic clusters and returns a textual representation of the clusters
-    to be consumed by the LLM.
-    """
-    if not reviews:
-        return "No reviews found for the specified period."
-        
-    texts = [r.get('review_text', '') for r in reviews if r.get('review_text')]
-    if not texts:
-        return "No review text content found to cluster."
-        
-    clusters = clusterer.cluster_reviews(texts)
+def cluster_and_summarize(reviews: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Scrubs PII and clusters reviews."""
+    print("Scrubbing PII from reviews...")
+    from phase_2_reasoning.scrubber import PIIScrubber
+    scrubber = PIIScrubber()
     
-    summary = []
-    for cid, docs in clusters.items():
-        summary.append(f"Cluster {cid} ({len(docs)} reviews):")
-        # Include first 5 reviews as samples to avoid context blowup
-        for doc in docs[:5]:
-            summary.append(f"  - {doc[:200]}...")
-        summary.append("")
+    scrubbed_reviews = []
+    for r in reviews:
+        content = r.get('content', '') or r.get('text', '')
+        r['content'] = scrubber.scrub(content)
+        scrubbed_reviews.append(r)
         
-    return "\n".join(summary)
+    print(f"Clustering {len(scrubbed_reviews)} reviews...")
+    return clusterer.cluster_reviews(scrubbed_reviews)
 
 def deliver_report(doc_id: str, report_content: str, email_to: str, subject: str) -> Dict[str, Any]:
-    """
-    Appends the report to Google Docs and sends an email draft via the MCP Client.
-    """
+    """Delivers report via MCP Client."""
     print("Delivering report to Google Docs...")
     doc_res = mcp_client.append_section(doc_id, report_content)
     
-    print(f"Creating email draft for {email_to}...")
-    email_res = mcp_client.send_email(email_to, subject, report_content[:500] + "...") # Send preview in email
+    print(f"Sending email to {email_to}...")
+    email_res = mcp_client.send_email(email_to, subject, report_content)
     
     return {
-        "doc_response": doc_res,
-        "email_response": email_res
+        "doc_status": doc_res,
+        "email_status": email_res
     }
 
-# Tool definitions for Groq
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "fetch_all_reviews",
-            "description": "Fetch reviews from Apple App Store and Google Play Store.",
+            "description": "Fetch reviews from Apple and Google Play stores",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "apple_app_id": {"type": "string", "description": "The Apple App Store ID (e.g., '1464306334')"},
-                    "google_play_id": {"type": "string", "description": "The Google Play Store Package Name (e.g., 'com.investindmoney')"},
-                    "weeks_ago": {"type": "string", "description": "How many weeks of history to fetch (integer as a string, e.g. '8')"}
+                    "apple_app_id": {"type": "string"},
+                    "google_play_id": {"type": "string"},
+                    "weeks_ago": {"type": "integer"}
                 },
                 "required": ["apple_app_id", "google_play_id"]
             }
@@ -114,15 +98,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "cluster_and_summarize",
-            "description": "Group a list of reviews into semantic themes/clusters.",
+            "description": "Cluster reviews into themes",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "reviews": {
-                        "type": "array",
-                        "items": {"type": "object"},
-                        "description": "List of review objects as returned by fetch_all_reviews."
-                    }
+                    "reviews": {"type": "array", "items": {"type": "object"}}
                 },
                 "required": ["reviews"]
             }
@@ -132,14 +112,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "deliver_report",
-            "description": "Final step: Delivery of the pulse report via Google Docs and Gmail.",
+            "description": "Deliver report to Google Docs and Email",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "doc_id": {"type": "string", "description": "The target Google Doc ID."},
-                    "report_content": {"type": "string", "description": "The full Markdown report generated by the LLM."},
-                    "email_to": {"type": "string", "description": "Recipient email address."},
-                    "subject": {"type": "string", "description": "Email subject line."}
+                    "doc_id": {"type": "string"},
+                    "report_content": {"type": "string"},
+                    "email_to": {"type": "string"},
+                    "subject": {"type": "string"}
                 },
                 "required": ["doc_id", "report_content", "email_to", "subject"]
             }
@@ -148,15 +128,14 @@ TOOLS = [
 ]
 
 def handle_tool_call(name: str, args: Dict[str, Any]):
-    """Dispatches a tool call to the correct implementation."""
     if name == "fetch_all_reviews":
-        # Cast weeks_ago to int as schema now expects string for LLM robustness
-        if "weeks_ago" in args:
-            args["weeks_ago"] = int(str(args["weeks_ago"]))
+        if "weeks_ago" in args and isinstance(args["weeks_ago"], str):
+            args["weeks_ago"] = int(args["weeks_ago"])
         return fetch_all_reviews(**args)
     elif name == "cluster_and_summarize":
         return cluster_and_summarize(**args)
     elif name == "deliver_report":
         return deliver_report(**args)
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+    raise ValueError(f"Unknown tool: {name}")
+
+from datetime import datetime # Late import to avoid issues
