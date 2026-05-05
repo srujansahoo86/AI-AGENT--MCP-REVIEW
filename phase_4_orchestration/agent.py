@@ -1,6 +1,5 @@
 import os
 import json
-import httpx
 from groq import Groq
 from dotenv import load_dotenv
 from typing import List, Dict, Any
@@ -9,10 +8,10 @@ from tools_registry import TOOLS, handle_tool_call
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-# Initialize Groq with an explicit clean HTTP client to fix GitHub Actions 'proxies' TypeError
+# Initialize Groq with default settings but increased timeout for reliability
 client = Groq(
     api_key=os.environ.get("GROQ_API_KEY"),
-    http_client=httpx.Client()
+    timeout=60.0  # 60 second timeout
 )
 MODEL = "llama-3.3-70b-versatile"
 
@@ -48,44 +47,48 @@ class PulseAgent:
         print(f"Starting Pulse Agent for {self.product_name}...")
         
         while True:
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=self.messages,
-                tools=TOOLS,
-                tool_choice="auto"
-            )
-            
-            response_message = response.choices[0].message
-            self.messages.append(response_message)
-            
-            if response_message.tool_calls:
-                for tool_call in response_message.tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
-                    
-                    print(f"Agent calling tool: {function_name}...")
-                    try:
-                        function_response = handle_tool_call(function_name, function_args)
+            try:
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=self.messages,
+                    tools=TOOLS,
+                    tool_choice="auto"
+                )
+                
+                response_message = response.choices[0].message
+                self.messages.append(response_message)
+                
+                if response_message.tool_calls:
+                    for tool_call in response_message.tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
                         
-                        self.messages.append({
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": function_name,
-                            "content": json.dumps(function_response)
-                        })
-                    except Exception as e:
-                        print(f"Error executing tool {function_name}: {e}")
-                        self.messages.append({
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": function_name,
-                            "content": json.dumps({"error": str(e)})
-                        })
-                continue
-            
-            print("\nFinal Agent Message:")
-            print(response_message.content)
-            return response_message.content
+                        print(f"Agent calling tool: {function_name}...")
+                        try:
+                            function_response = handle_tool_call(function_name, function_args)
+                            
+                            self.messages.append({
+                                "tool_call_id": tool_call.id,
+                                "role": "tool",
+                                "name": function_name,
+                                "content": json.dumps(function_response)
+                            })
+                        except Exception as e:
+                            print(f"Error executing tool {function_name}: {e}")
+                            self.messages.append({
+                                "tool_call_id": tool_call.id,
+                                "role": "tool",
+                                "name": function_name,
+                                "content": json.dumps({"error": str(e)})
+                            })
+                    continue
+                
+                print("\nFinal Agent Message:")
+                print(response_message.content)
+                return response_message.content
+            except Exception as e:
+                print(f"API Error: {e}")
+                raise e
 
 if __name__ == "__main__":
     # Test run
