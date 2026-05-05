@@ -43,6 +43,10 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           MCP_SERVER_URL: ${{ secrets.MCP_SERVER_URL }}
+          HTTP_PROXY: ""
+          HTTPS_PROXY: ""
+          http_proxy: ""
+          https_proxy: ""
         run: |
           # Use workflow inputs if manual, or defaults if scheduled
           PRODUCT=${{ github.event.inputs.product || 'INDMoney' }}
