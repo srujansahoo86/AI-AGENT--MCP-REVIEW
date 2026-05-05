@@ -1,5 +1,6 @@
 import os
 import json
+import httpx
 from groq import Groq
 from dotenv import load_dotenv
 from typing import List, Dict, Any
@@ -8,7 +9,11 @@ from tools_registry import TOOLS, handle_tool_call
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+# Initialize Groq with an explicit clean HTTP client to fix GitHub Actions 'proxies' TypeError
+client = Groq(
+    api_key=os.environ.get("GROQ_API_KEY"),
+    http_client=httpx.Client()
+)
 MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """
