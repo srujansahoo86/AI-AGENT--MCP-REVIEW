@@ -9,7 +9,7 @@ from tools_registry import TOOLS, handle_tool_call
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY").strip())
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "llama-3.1-8b-instant"
 
 SYSTEM_PROMPT = """
 You are the 'Weekly Product Review Pulse' AI Agent. Your goal is to generate a high-quality weekly summary of user feedback for specific fintech products and deliver it via Google Workspace.
