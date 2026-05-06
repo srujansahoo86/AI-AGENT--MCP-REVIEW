@@ -13,7 +13,7 @@ client = Groq(
     api_key=os.environ.get("GROQ_API_KEY").strip(),
     timeout=60.0
 )
-MODEL = "llama-3.1-8b-instant"
+MODEL = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """
 You are the 'Weekly Product Review Pulse' AI Agent.
