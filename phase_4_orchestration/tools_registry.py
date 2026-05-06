@@ -43,9 +43,9 @@ def fetch_all_reviews(apple_app_id: str, google_play_id: str, weeks_ago: int = 8
             data['date'] = data['date'].isoformat()
         combined.append(data)
     
-    if len(combined) > 50:
-        print(f"Limiting agent context to 50 reviews (out of {len(combined)}).")
-        combined = combined[:50]
+    if len(combined) > 30:
+        print(f"Limiting agent context to 30 reviews (out of {len(combined)}).")
+        combined = combined[:30]
         
     return combined
 
