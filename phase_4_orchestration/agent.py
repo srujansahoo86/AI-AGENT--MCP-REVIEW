@@ -22,7 +22,7 @@ PRODUCT DATA:
 - INDMoney: Apple ID '1459334316', Google ID 'com.indwealth'
 
 WORKFLOW:
-1. Fetch reviews using 'fetch_all_reviews' with the IDs above. Use weeks_ago=8.
+1. Fetch reviews using 'fetch_all_reviews' with the IDs above. Use the exact 'weeks_ago' requested by the user.
 2. Cluster and summarize using 'cluster_and_summarize'.
 3. Deliver the Markdown report using 'deliver_report'.
 
@@ -33,14 +33,15 @@ RULES:
 """
 
 class PulseAgent:
-    def __init__(self, product_name: str, iso_week: str, doc_id: str, email_to: str):
+    def __init__(self, product_name: str, iso_week: str, doc_id: str, email_to: str, weeks_ago: int = 1):
         self.product_name = product_name
         self.iso_week = iso_week
         self.doc_id = doc_id
         self.email_to = email_to
+        self.weeks_ago = weeks_ago
         self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Generate the weekly pulse for {product_name} ({iso_week}). Doc: {doc_id}, Email: {email_to}"}
+            {"role": "user", "content": f"Generate the weekly pulse for {product_name} ({iso_week}). Look back {getattr(self, 'weeks_ago', 1)} weeks. Doc: {doc_id}, Email: {email_to}"}
         ]
 
     def run(self):

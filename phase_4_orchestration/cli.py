@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--week", required=True, help="ISO Week (e.g., 2024-W19)")
     parser.add_argument("--doc-id", required=True, help="Target Google Doc ID")
     parser.add_argument("--email", required=True, help="Recipient email address")
+    parser.add_argument("--weeks-ago", type=int, default=1, help="Number of weeks to look back")
     parser.add_argument("--force", action="store_true", help="Force run even if already completed")
     
     args = parser.parse_args()
@@ -53,7 +54,8 @@ def main():
             product_name=args.product,
             iso_week=args.week,
             doc_id=args.doc_id,
-            email_to=args.email
+            email_to=args.email,
+            weeks_ago=args.weeks_ago
         )
         agent.run()
         
